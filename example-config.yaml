@@ -1,0 +1,8 @@
+Dev_Name:
+  device_type: device_type
+  host: host_or_ip
+  port: port
+  username: hostname
+  secret: secret
+  hostname: hostname
+  domainname: domain.tld
