@@ -79,9 +79,6 @@ def backup_config_tftp(net_connect, hostname, tftp_server):
     return filename
 
 def main():
-    # Add TFTP server IP (your PC's IP address)
-    tftp_server = "10.175.136.3"  # Replace with your PC's IP
-
     with open("config.yaml", "r") as file:
         config = yaml.safe_load(file)
 
@@ -90,6 +87,7 @@ def main():
         print(device_name)
 
         if device_name == "Globals":
+            tftp_server = device_config["tftp_server"]
             continue
 
         if device_config["device_type"] == "cisco_ios":

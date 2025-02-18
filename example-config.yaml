@@ -7,6 +7,7 @@ Globals:
   username: user
   domainname: domain.local
   default_gateway: 192.168.1.1
+  tftp_server: 192.168.1.2
 
 # Need to change the device_type depending on device and ssh or telnet usage
 # This script supports cisco ios, juniper junos, and cumulus linux devices

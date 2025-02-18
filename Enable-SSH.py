@@ -68,7 +68,7 @@ def exec_cisco(net_connect, commands):
 
 
 # Function to handle Juniper device authentication and enter CLI mode
-# TODO: Less hardcoding of commands, make more like cisco function
+# TODO: Less hardcoding of commands, make more like cisco function make juniper function work
 def exec_juniper(net_connect, commands, filtered_device):
     print(net_connect.get_prompt())
     output = net_connect.send_command("root")
