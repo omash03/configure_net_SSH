@@ -1,8 +1,20 @@
+# Note: This is an example configuration file, change to config.yaml to run script
+# You do not need to provide a username and secret here if you would like to use the same username and secret for all devices
+# You also do not need to provide domainname if you would like it to be the same for all devices
+# Find supported device types here (This script only supports cisco juniper and cumulus)https://ktbyers.github.io/netmiko/PLATFORMS.html
+
+Globals:
+  username: user
+  domainname: domain.local
+  default_gateway: 192.168.1.1
+
+# Need to change the device_type depending on device and ssh or telnet usage
+# This script supports cisco ios, juniper junos, and cumulus linux devices
 Dev_Name:
-  device_type: device_type
-  host: host_or_ip
+  device_type: cisco_ios_telnet
+  host: 192.168.1.2
   port: port
   username: hostname
   secret: secret
   hostname: hostname
-  domainname: domain.tld
+  domain_name: domain.tld

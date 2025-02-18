@@ -3,3 +3,4 @@ __pycache__
 config.yaml
 *.code-workspace
 address-notes.txt
+testing.py
