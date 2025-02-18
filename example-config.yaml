@@ -16,6 +16,5 @@ Dev_Name:
   host: 192.168.1.2
   port: port
   username: hostname
-  secret: secret
   hostname: hostname
   domain_name: domain.tld
