@@ -12,11 +12,11 @@ dev_secret = None
 def get_password(prompt="Enter your password: "):
     while True:
         password = getpass(prompt)
-        confirm_password = getpass("Enter again: ")
+        confirm_password = getpass("Input again to verify: ")
         if password == confirm_password:
             return password
         else:
-            print("Confirmation does not match. Please try again.")
+            print("Does not match. Please try again.")
 
 def create_device_params(device_config, universal_cred, dev_username, dev_secret):
     # Convert YAML config to Netmiko device parameters
@@ -100,9 +100,6 @@ def configure_device(device_name, device_config, universal_cred, dev_username, d
         # Create VLANs
         net_connect.config_mode()
         create_vlans(net_connect, 10, 50, 10)
-        
-        # Wait a moment before backup
-        time.sleep(2)
         
         # Backup the configuration
         backup_config_tftp(net_connect, device_config['hostname'], tftp_server)

@@ -4,26 +4,27 @@ from getpass import getpass
 import time
 import yaml
 
-# Load the configuration from the YAML file
-with open("config.yaml", "r") as file:
-    config = yaml.safe_load(file)
-
 global_password = None
 username = None
 password = None
 
 universal_creds = input("Use the same credentials for all devices? (y/n): ")
 universal_domain = input("Use the same domain name for all devices? (y/n): ")
-mgt_net = input("Use the same management network for all devices? (y/n): ")
+unv_mgt = input("Use the same management network for all devices? (y/n): ")
+
+# Load the configuration from the YAML file
+with open("config.yaml", "r") as file:
+    config = yaml.safe_load(file)
+
 
 def get_password(prompt="Enter your password: "):
     while True:
         password = getpass(prompt)
-        confirm_password = getpass("Confirm your password: ")
+        confirm_password = getpass("Input again to confirm: ")
         if password == confirm_password:
             return password
         else:
-            print("Passwords do not match. Please try again.")
+            print("Does not match. Please try again.")
 
 def perdev_check(username, password):
     if password is None:
@@ -55,7 +56,18 @@ def connect_filter(dev_name):
     }
 
 def allkey_filter(dev_name):
-    return {key: dev_name[key] for key in dev_name}
+    if unv_mgt.lower() in ["yes", "y"]:
+        return {
+            "hostname": dev_name["hostname"],
+            "domain_name": config["Globals"]["domain_name"],
+            "username": config["Globals"]["username"],
+            "default_pass": global_password,
+            "mgt_ip": dev_name["mgt_ip"],
+            "mgt_mask": config["Globals"]["mgt_mask"],
+            "layer": dev_name["layer"]
+        }
+    else:
+        return {key: dev_name[key] for key in dev_name}
 
 def exec_cisco(net_connect, commands):
     # Execute with proper timing handling to stop hanging
@@ -121,14 +133,14 @@ def exec_juniper(net_connect, commands, filtered_device):
 def configure_device(device_name, device_config, username, password, domain_name, mgt_gateway, mgt_mask):
     # include commands for all devices
     try:
-        filtered_device = connect_filter(device_config)
+        con_filt = connect_filter(device_config)
         all_keys = allkey_filter(device_config)
         
-        print(f"Attempting to connect to {device_name} ({filtered_device['host']}:{filtered_device['port']})")
-        dev_connection = ConnectHandler(**filtered_device)
+        print(f"Attempting to connect to {device_name} ({con_filt['host']}:{con_filt['port']})")
+        dev_connection = ConnectHandler(**con_filt)
         print(f"Successfully connected to {device_name}")
         
-        if filtered_device["device_type"] == "cisco_ios_telnet" and all_keys['layer'] == "L2Switch":
+        if con_filt["device_type"] == "cisco_ios_telnet" and all_keys['layer'] == "L2Switch":
             print(f"Connecting to L2 Cisco Switch: {device_name}")
             commands = [
                 "enable",
@@ -158,7 +170,7 @@ def configure_device(device_name, device_config, username, password, domain_name
             ]
             exec_cisco(dev_connection, commands)
             
-        elif filtered_device["device_type"] == "cisco_ios_telnet" and all_keys['layer'] == "L3Switch":
+        elif con_filt["device_type"] == "cisco_ios_telnet" and all_keys['layer'] == "L3Switch":
             print(f"Connecting to L3 Cisco Switch: {device_name}")
             commands = [
                 "enable",
@@ -183,7 +195,7 @@ def configure_device(device_name, device_config, username, password, domain_name
             ]
             exec_cisco(dev_connection, commands)
             
-        elif filtered_device["device_type"] == "juniper_junos_telnet":
+        elif con_filt["device_type"] == "juniper_junos_telnet":
             print(f"Connecting to Juniper Switch: {device_name}")
             commands = [
                 "cli",
@@ -200,7 +212,7 @@ def configure_device(device_name, device_config, username, password, domain_name
                 "set system root-authentication plain-text-password {get_password()}",
                 "commit and-quit"
             ]
-            exec_juniper(dev_connection, commands, filtered_device)
+            exec_juniper(dev_connection, commands, con_filt)
             
     except Exception as e:
         print(f"Failed to configure {device_name}. Error: {e}")
@@ -211,10 +223,10 @@ def main():
     password = get_password()
     
     # If the user wants to use the same domain name for all devices
-    if universal_domain == "yes" or universal_domain == "y":
+    if universal_domain.lower() in ["yes", "y"]:
         domain_name = config["Globals"]["domain_name"]
 
-    if mgt_net == "yes" or mgt_net == "y":
+    if unv_mgt.lower() in ["yes", "y"]:
         mgt_gateway = config["Globals"]["mgt_gateway"]
         mgt_mask = config["Globals"]["mgt_mask"]
     else:

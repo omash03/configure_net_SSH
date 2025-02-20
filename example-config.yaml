@@ -10,16 +10,19 @@ Globals:
   mgt_mask: 255.255.255.192
   tftp_server: 192.168.1.2
 
-# Need to change the device_type depending on device and ssh or telnet usage
-# This script supports cisco ios, juniper junos, and cumulus linux devices
+
+# This script supports cisco L2 Switch at the moment, will support more devices in the future
+# Change the Dev_Name when you add new devices if you want to have good documentation
 Dev_Name:
-  device_type: cisco_ios_telnet
-  # GNS3 Host IP
+  device_type: cisco
+  # GNS3 Host IP (Or whatever telnet host you're using)
   host: 192.168.1.2
   # Telnet port
   port: 5000
   Layer: "L2Switch"
   hostname: hostname
+  # Don't need to change this if you want the same domain name for all devices, just change the globals
   domain_name: domain.tld
+  # Management IP (IP to give the device for the mgt network)
   mgt_ip: 192.168.1.3
   mgt_mask: 255.255.255.0
