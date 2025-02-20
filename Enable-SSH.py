@@ -1,11 +1,8 @@
+from concurrent.futures import ThreadPoolExecutor
 from netmiko import ConnectHandler
 from getpass import getpass
 import time
 import yaml
-
-# Load the configuration from the YAML file
-with open("config.yaml", "r") as file:
-    config = yaml.safe_load(file)
 
 global_password = None
 username = None
@@ -13,16 +10,21 @@ password = None
 
 universal_creds = input("Use the same credentials for all devices? (y/n): ")
 universal_domain = input("Use the same domain name for all devices? (y/n): ")
-mgt_net = input("Use the same management network for all devices? (y/n): ")
+unv_mgt = input("Use the same management network for all devices? (y/n): ")
+
+# Load the configuration from the YAML file
+with open("config.yaml", "r") as file:
+    config = yaml.safe_load(file)
+
 
 def get_password(prompt="Enter your password: "):
     while True:
         password = getpass(prompt)
-        confirm_password = getpass("Confirm your password: ")
+        confirm_password = getpass("Input again to confirm: ")
         if password == confirm_password:
             return password
         else:
-            print("Passwords do not match. Please try again.")
+            print("Does not match. Please try again.")
 
 def perdev_check(username, password):
     if password is None:
@@ -54,7 +56,18 @@ def connect_filter(dev_name):
     }
 
 def allkey_filter(dev_name):
-    return {key: dev_name[key] for key in dev_name}
+    if unv_mgt.lower() in ["yes", "y"]:
+        return {
+            "hostname": dev_name["hostname"],
+            "domain_name": config["Globals"]["domain_name"],
+            "username": config["Globals"]["username"],
+            "default_pass": global_password,
+            "mgt_ip": dev_name["mgt_ip"],
+            "mgt_mask": config["Globals"]["mgt_mask"],
+            "layer": dev_name["layer"]
+        }
+    else:
+        return {key: dev_name[key] for key in dev_name}
 
 def exec_cisco(net_connect, commands):
     # Execute with proper timing handling to stop hanging
@@ -117,47 +130,18 @@ def exec_juniper(net_connect, commands, filtered_device):
     net_connect.send_command("commit and-quit", expect_string=r">")
     net_connect.disconnect()
 
-
-def main():
-
-    username = config["Globals"]["username"]
-    password = get_password()
-    
-    # If the user wants to use the same domain name for all devices
-    if universal_domain == "yes" or universal_domain == "y":
-        domain_name = config["Globals"]["domain_name"]
-
-    if mgt_net == "yes" or mgt_net == "y":
-        mgt_gateway = config["Globals"]["mgt_gateway"]
-        mgt_mask = config["Globals"]["mgt_mask"]
-    else:
-        mgt_gateway = input("Enter the default gateway for the management network: ")
-        mgt_mask = input("Enter the subnet mask for the management network: ")
-
-    # Set up the key value pair iteration for each device from yaml file
-    for device_name, device_config in config.items():
-
-        # Skip the globals section of the configuration
-        if device_name == "Globals":
-            continue
-
-        filtered_device = connect_filter(device_config)
+def configure_device(device_name, device_config, username, password, domain_name, mgt_gateway, mgt_mask):
+    # include commands for all devices
+    try:
+        con_filt = connect_filter(device_config)
         all_keys = allkey_filter(device_config)
-        dev_connection = ConnectHandler(**filtered_device)
-
-        try:
-            print(f"Attempting to connect to {device_name} ({filtered_device['host']}:{filtered_device['port']})")
-            dev_connection = ConnectHandler(**filtered_device)
-            print(f"Successfully connected to {device_name}")
-        except Exception as e:
-            print(f"Failed to connect to {device_name}. Error: {e}")
-            continue
-
-        # Define the commands with variables from the configuration
-        if filtered_device["device_type"] == "cisco_ios_telnet" and all_keys['layer'] == "L2Switch":
-            print("Connecting to L2 Cisco Switch")
-
-  
+        
+        print(f"Attempting to connect to {device_name} ({con_filt['host']}:{con_filt['port']})")
+        dev_connection = ConnectHandler(**con_filt)
+        print(f"Successfully connected to {device_name}")
+        
+        if con_filt["device_type"] == "cisco_ios_telnet" and all_keys['layer'] == "L2Switch":
+            print(f"Connecting to L2 Cisco Switch: {device_name}")
             commands = [
                 "enable",
                 "configure terminal",
@@ -184,13 +168,10 @@ def main():
                 "end",
                 "write memory"
             ]
-
             exec_cisco(dev_connection, commands)
-
-        #TODO - Correct creation of management VLAN subinterface for L3 Devices
-        if filtered_device["device_type"] == "cisco_ios_telnet" and all_keys['layer'] == "L3Switch":
-            print("Connecting to L3 Cisco Switch")
-
+            
+        elif con_filt["device_type"] == "cisco_ios_telnet" and all_keys['layer'] == "L3Switch":
+            print(f"Connecting to L3 Cisco Switch: {device_name}")
             commands = [
                 "enable",
                 "configure terminal",
@@ -212,13 +193,10 @@ def main():
                 "end",
                 "write memory"
             ]
-
-            exec_cisco(ConnectHandler(**filtered_device), commands)
-        
-        #TODO - Finish Juniper Configuration for ssh
-        if filtered_device["device_type"] == "juniper_junos_telnet" and all_keys['layer'] == "L2Switch":
-            print("Connecting to Juniper Switch")
-
+            exec_cisco(dev_connection, commands)
+            
+        elif con_filt["device_type"] == "juniper_junos_telnet":
+            print(f"Connecting to Juniper Switch: {device_name}")
             commands = [
                 "cli",
                 "configure",
@@ -234,8 +212,52 @@ def main():
                 "set system root-authentication plain-text-password {get_password()}",
                 "commit and-quit"
             ]
+            exec_juniper(dev_connection, commands, con_filt)
+            
+    except Exception as e:
+        print(f"Failed to configure {device_name}. Error: {e}")
 
-            exec_juniper(ConnectHandler(**filtered_device), commands)
+def main():
+
+    username = config["Globals"]["username"]
+    password = get_password()
+    
+    # If the user wants to use the same domain name for all devices
+    if universal_domain.lower() in ["yes", "y"]:
+        domain_name = config["Globals"]["domain_name"]
+
+    if unv_mgt.lower() in ["yes", "y"]:
+        mgt_gateway = config["Globals"]["mgt_gateway"]
+        mgt_mask = config["Globals"]["mgt_mask"]
+    else:
+        mgt_gateway = input("Enter the default gateway for the management network: ")
+        mgt_mask = input("Enter the subnet mask for the management network: ")
+
+    # Create a thread pool
+    max_threads = 10  # Adjust based on your needs
+    with ThreadPoolExecutor(max_workers=max_threads) as executor:
+        futures = []
+        
+        # Submit device configurations to thread pool
+        for device_name, device_config in config.items():
+            if device_name == "Globals":
+                continue
+                
+            future = executor.submit(
+                configure_device,
+                device_name,
+                device_config,
+                username,
+                password,
+                domain_name,
+                mgt_gateway,
+                mgt_mask
+            )
+            futures.append(future)
+        
+        # Wait for all configurations to complete
+        for future in futures:
+            future.result()
 
 if __name__ == "__main__":
-    main()
+    main()  

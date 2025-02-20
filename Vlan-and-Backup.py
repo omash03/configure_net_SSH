@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 from netmiko import ConnectHandler
 from getpass import getpass
 import yaml
@@ -11,11 +12,11 @@ dev_secret = None
 def get_password(prompt="Enter your password: "):
     while True:
         password = getpass(prompt)
-        confirm_password = getpass("Enter again: ")
+        confirm_password = getpass("Input again to verify: ")
         if password == confirm_password:
             return password
         else:
-            print("Confirmation does not match. Please try again.")
+            print("Does not match. Please try again.")
 
 def create_device_params(device_config, universal_cred, dev_username, dev_secret):
     # Convert YAML config to Netmiko device parameters
@@ -49,15 +50,6 @@ def create_device_params(device_config, universal_cred, dev_username, dev_secret
             'port': 22,
             'secret': get_password("Enter your enable secret: "),
         }
-
-def get_password(prompt="Enter your password: "):
-    while True:
-        password = getpass(prompt)
-        confirm_password = getpass("Confirm your password: ")
-        if password == confirm_password:
-            return password
-        else:
-            print("Passwords do not match. Please try again.")
 
 def create_vlans(net_connect, vlan_start=10, vlan_end=50, step=10):
     """Create VLANs and assign names in steps of 10"""
@@ -97,48 +89,63 @@ def backup_config_tftp(net_connect, hostname, tftp_server):
     print(output)
     return filename
 
+def configure_device(device_name, device_config, universal_cred, dev_username, dev_secret, tftp_server):
+    """Configure a single device with VLANs and backup"""
+    try:
+        # Connect to the device
+        net_connect = ConnectHandler(**create_device_params(device_config, universal_cred, dev_username, dev_secret))
+        net_connect.enable()
+        print(f"Connected to {device_name} and entered enable mode")
+        
+        # Create VLANs
+        net_connect.config_mode()
+        create_vlans(net_connect, 10, 50, 10)
+        
+        # Backup the configuration
+        backup_config_tftp(net_connect, device_config['hostname'], tftp_server)
+        
+        net_connect.disconnect()
+        
+    except Exception as e:
+        print(f"Failed to configure {device_name}: {str(e)}")
+
 def main():
     with open("config.yaml", "r") as file:
         config = yaml.safe_load(file)
 
     if input("Will you be using universal credentials?: ") == "yes".lower() or "y".lower():
         universal_cred = True
-        dev_username = input("Enter your username: ")
         dev_secret = get_password("Enter your secret: ")
 
     else:
         universal_cred = False
 
-    # Device connection parameters
-    for device_name, device_config in config.items():
-        print(device_name)
-
-        if device_name == "Globals":
-            tftp_server = device_config["tftp_server"]
-            continue
-
-        try:
-            # Connect to the device
-            net_connect = ConnectHandler(**create_device_params(device_config, universal_cred, dev_username, dev_secret))
-            net_connect.enable()
-            print("Entered enable mode")
-            
-            # Create VLANs
-            net_connect.config_mode()
-            print("Entered global configuration mode")
-
-            create_vlans(net_connect, 10, 50, 10)
-            
-            # Backup the configuration using TFTP
-            backup_config_tftp(net_connect, device_config['hostname'], tftp_server)
-            time.sleep(3)
-            
-            # Disconnect
-            net_connect.disconnect()
-            
-        except Exception as e:
-            print(f"Failed to connect to {device_name}.")
-            print(e)
+# Create thread pool
+    max_threads = 10  # Set to whatever you can handle
+    with ThreadPoolExecutor(max_workers=max_threads) as executor:
+        futures = []
+        
+        for device_name, device_config in config.items():
+            if device_name == "Globals":
+                if universal_cred == True:
+                    dev_username = device_config["username"]
+                tftp_server = device_config["tftp_server"]
+                continue
+                
+            future = executor.submit(
+                configure_device,
+                device_name,
+                device_config,
+                universal_cred,
+                dev_username,
+                dev_secret,
+                tftp_server
+            )
+            futures.append(future)
+        
+        # Wait for all configurations to complete
+        for future in futures:
+            future.result()
 
 if __name__ == "__main__":
     main()
