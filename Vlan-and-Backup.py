@@ -2,34 +2,53 @@ from netmiko import ConnectHandler
 from getpass import getpass
 import yaml
 import datetime
+import time
+
+universal_cred = None
+dev_username = None
+dev_secret = None
 
 def get_password(prompt="Enter your password: "):
     while True:
         password = getpass(prompt)
-        confirm_password = getpass("Confirm your password: ")
+        confirm_password = getpass("Enter again: ")
         if password == confirm_password:
             return password
         else:
-            print("Passwords do not match. Please try again.")
+            print("Confirmation does not match. Please try again.")
 
-def connect_filter(dev_name):
-    required_fields = ["device_type", "mgt_ip", "port"]
-    return {key: dev_name[key] for key in required_fields if key in dev_name}
-
-def allkey_filter(dev_name):
-    return {key: dev_name[key] for key in dev_name}
-
-def create_device_params(device_config):
+def create_device_params(device_config, universal_cred, dev_username, dev_secret):
     # Convert YAML config to Netmiko device parameters
-    return {
+    match device_config["device_type"].lower():
+        case "cisco":
+            device_type = "cisco_ios"
+        case "juniper":
+            device_type = "juniper_junos"
+        case "cumulus":
+            device_type = "linux"
+        case _:
+            raise ValueError(f"Unsupported device type: {device_config['device_type']}")
+
+    if universal_cred == True:
+        return {
         #TODO: don't hardcode device_type
-        'device_type': device_config['device_type'],
+        'device_type': device_type,
         'host': device_config['mgt_ip'],
-        'username': device_config['username'],
-        'password': get_password(),
+        'username': dev_username,
+        'password': dev_secret,
         'port': 22,
-        'secret': get_password("Enter your enable secret: "),
-    }
+        'secret': dev_secret,
+        }
+    elif universal_cred == False:
+        return {
+            #TODO: don't hardcode device_type
+            'device_type': device_type,
+            'host': device_config['mgt_ip'],
+            'username': device_config['username'],
+            'password': get_password(),
+            'port': 22,
+            'secret': get_password("Enter your enable secret: "),
+        }
 
 def get_password(prompt="Enter your password: "):
     while True:
@@ -82,6 +101,14 @@ def main():
     with open("config.yaml", "r") as file:
         config = yaml.safe_load(file)
 
+    if input("Will you be using universal credentials?: ") == "yes".lower() or "y".lower():
+        universal_cred = True
+        dev_username = input("Enter your username: ")
+        dev_secret = get_password("Enter your secret: ")
+
+    else:
+        universal_cred = False
+
     # Device connection parameters
     for device_name, device_config in config.items():
         print(device_name)
@@ -90,31 +117,28 @@ def main():
             tftp_server = device_config["tftp_server"]
             continue
 
-        if device_config["device_type"] == "cisco_ios":
-            try:
-                # Connect to the device
-                net_connect = ConnectHandler(**create_device_params(device_config))
-                net_connect.enable()
-                print("Entered enable mode")
-                
-                # Create VLANs
-                net_connect.config_mode()
-                print("Entered global configuration mode")
+        try:
+            # Connect to the device
+            net_connect = ConnectHandler(**create_device_params(device_config, universal_cred, dev_username, dev_secret))
+            net_connect.enable()
+            print("Entered enable mode")
+            
+            # Create VLANs
+            net_connect.config_mode()
+            print("Entered global configuration mode")
 
-                create_vlans(net_connect, 10, 50, 10)
-                
-                # Backup the configuration using TFTP
-                backup_config_tftp(net_connect, device_config['hostname'], tftp_server)
-                
-                # Disconnect
-                net_connect.disconnect()
-                
-            except Exception as e:
-                print(f"Failed to connect to {device_name}.")
-                print(e)
-
-        else :
-            print(f"Unsupported device type: {device_config['device_type']}")
+            create_vlans(net_connect, 10, 50, 10)
+            
+            # Backup the configuration using TFTP
+            backup_config_tftp(net_connect, device_config['hostname'], tftp_server)
+            time.sleep(3)
+            
+            # Disconnect
+            net_connect.disconnect()
+            
+        except Exception as e:
+            print(f"Failed to connect to {device_name}.")
+            print(e)
 
 if __name__ == "__main__":
     main()

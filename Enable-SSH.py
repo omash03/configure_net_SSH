@@ -36,36 +36,85 @@ def perdev_check(username, password):
 
 # Filter the dictionary to include only the required fields for connections
 def connect_filter(dev_name):
-    required_fields = ["device_type", "host", "port"]
-    return {key: dev_name[key] for key in required_fields if key in dev_name}
+
+    match dev_name["device_type"]:
+        case "cisco":
+            device_type = "cisco_ios_telnet"
+        case "juniper":
+            device_type = "juniper_junos_telnet"
+        case "cumulus":
+            device_type = "linux"
+        case _:
+            raise ValueError(f"Unsupported device type: {dev_name['device_type']}")
+
+    return {
+        "device_type": device_type,
+        "host": dev_name["host"],
+        "port": dev_name["port"]
+    }
 
 def allkey_filter(dev_name):
     return {key: dev_name[key] for key in dev_name}
 
 def exec_cisco(net_connect, commands):
+    # Execute with proper timing handling to stop hanging
+
+    timing_keywords = [
+        "enable",
+        "configure terminal",
+        "crypto key generate rsa modulus 2048",
+        "int vlan 1",
+        "line vty 0 4",
+        "end",
+        "hostname",
+        "exit"
+    ]
 
     for command in commands:
-        if command == "reload":
-            # Send the reload command and confirm
-            output = net_connect.send_command_timing(command)
-            if "Proceed with reload" in output:
-                output += net_connect.send_command_timing("y")
-            print(output)
-            
-            # Wait for the device to reload
-            time.sleep(120)  # Adjust the sleep time as needed
-            
-            # Handle the initial configuration dialog
-            output = net_connect.send_command_timing("\n")
-            if "Would you like to enter the initial configuration dialog" in output:
-                output += net_connect.send_command_timing("no")
-            print(output)
-        else:
-            output = net_connect.send_command_timing(command)
-            print(output)
+        # Check if any timing keyword is in the command
+        needs_timing = any(keyword in command for keyword in timing_keywords)
+        
+        match command:
+            case "reload":
+                output = net_connect.send_command_timing(command)
+                if "Proceed with reload" in output:
+                    output += net_connect.send_command_timing("y")
+                print(output)
+                time.sleep(120)
+                
+                output = net_connect.send_command_timing("\n")
+                if "Would you like to enter the initial configuration dialog" in output:
+                    output += net_connect.send_command_timing("no")
+                    
+            case _ if needs_timing:
+                output = net_connect.send_command_timing(command, strip_prompt=False, strip_command=False)
+                
+            case _:
+                output = net_connect.send_command(command, strip_prompt=False, strip_command=False)
+                
+        print(output)
     
     net_connect.disconnect()
 
+# def exec_cisco(net_connect, commands):
+
+#     for command in commands:
+
+#         if command == "reload":
+#             # Send the reload command and confirm
+#             output = net_connect.send_command_timing(command)
+#             if "Proceed with reload" in output:
+#                 output += net_connect.send_command_timing("y")
+            
+
+#             output = net_connect.send_command_timing("\n")
+#             if "Would you like to enter the initial configuration dialog" in output:
+#                 output += net_connect.send_command_timing("no")
+#             print(output)
+#         else:
+#             output = net_connect.send_command_timing(command)
+
+#     net_connect.disconnect()
 
 # Function to handle Juniper device authentication and enter CLI mode
 # TODO: Less hardcoding of commands, make more like cisco function make juniper function work
@@ -93,6 +142,9 @@ def exec_juniper(net_connect, commands, filtered_device):
 
 def main():
 
+    username = config["Globals"]["username"]
+    password = get_password()
+    
     # If the user wants to use the same domain name for all devices
     if universal_domain == "yes" or universal_domain == "y":
         domain_name = config["Globals"]["domain_name"]
@@ -103,13 +155,6 @@ def main():
     else:
         mgt_gateway = input("Enter the default gateway for the management network: ")
         mgt_mask = input("Enter the subnet mask for the management network: ")
-
-    if universal_creds == "yes" or universal_creds == "y":
-        username = config["Globals"]["username"]
-        password = get_password()
-    else:
-        username = None
-        password = None
 
     # Set up the key value pair iteration for each device from yaml file
     for device_name, device_config in config.items():
@@ -122,24 +167,19 @@ def main():
         all_keys = allkey_filter(device_config)
         dev_connection = ConnectHandler(**filtered_device)
 
-        # Print the filtered device configuration for debugging
-        print(f"Connecting to {device_name} with the following configuration:")
-        for key, value in filtered_device.items():
-            print(f"{key}: {value}")
-
-        print(device_config)
-        print(all_keys['layer'])
+        try:
+            print(f"Attempting to connect to {device_name} ({filtered_device['host']}:{filtered_device['port']})")
+            dev_connection = ConnectHandler(**filtered_device)
+            print(f"Successfully connected to {device_name}")
+        except Exception as e:
+            print(f"Failed to connect to {device_name}. Error: {e}")
+            continue
 
         # Define the commands with variables from the configuration
         if filtered_device["device_type"] == "cisco_ios_telnet" and all_keys['layer'] == "L2Switch":
             print("Connecting to L2 Cisco Switch")
 
-            perdev_check(username, password)
-            if password is None:
-                password = get_password()
-            if username is None:
-                username = all_keys['username']
-
+  
             commands = [
                 "enable",
                 "configure terminal",
@@ -154,12 +194,12 @@ def main():
                 "int vlan 1",
                 "no shutdown",
                 f"ip address {all_keys['mgt_ip']} {all_keys['mgt_mask']}",
-                "aaa new-model",
                 "int e0/0",
-                "ip routing",
                 "int e0/0",
                 "no shutdown",
                 "exit",
+                "ip routing",
+                "aaa new-model",
                 "ip ssh version 2",
                 "line vty 0 4",
                 "transport input ssh",
@@ -172,8 +212,6 @@ def main():
         #TODO - Correct creation of management VLAN subinterface for L3 Devices
         if filtered_device["device_type"] == "cisco_ios_telnet" and all_keys['layer'] == "L3Switch":
             print("Connecting to L3 Cisco Switch")
-
-            perdev_check()
 
             commands = [
                 "enable",
@@ -202,8 +240,6 @@ def main():
         #TODO - Finish Juniper Configuration for ssh
         if filtered_device["device_type"] == "juniper_junos_telnet" and all_keys['layer'] == "L2Switch":
             print("Connecting to Juniper Switch")
-
-            perdev_check()
 
             commands = [
                 "cli",
