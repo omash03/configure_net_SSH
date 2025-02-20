@@ -96,28 +96,6 @@ def exec_cisco(net_connect, commands):
     
     net_connect.disconnect()
 
-# def exec_cisco(net_connect, commands):
-
-#     for command in commands:
-
-#         if command == "reload":
-#             # Send the reload command and confirm
-#             output = net_connect.send_command_timing(command)
-#             if "Proceed with reload" in output:
-#                 output += net_connect.send_command_timing("y")
-            
-
-#             output = net_connect.send_command_timing("\n")
-#             if "Would you like to enter the initial configuration dialog" in output:
-#                 output += net_connect.send_command_timing("no")
-#             print(output)
-#         else:
-#             output = net_connect.send_command_timing(command)
-
-#     net_connect.disconnect()
-
-# Function to handle Juniper device authentication and enter CLI mode
-# TODO: Less hardcoding of commands, make more like cisco function make juniper function work
 def exec_juniper(net_connect, commands, filtered_device):
     print(net_connect.get_prompt())
     output = net_connect.send_command("root")
