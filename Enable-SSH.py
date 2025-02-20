@@ -119,7 +119,7 @@ def exec_juniper(net_connect, commands, filtered_device):
     net_connect.disconnect()
 
 def configure_device(device_name, device_config, username, password, domain_name, mgt_gateway, mgt_mask):
-    """Configure a single device - moved from main() to separate function"""
+    # include commands for all devices
     try:
         filtered_device = connect_filter(device_config)
         all_keys = allkey_filter(device_config)
@@ -222,7 +222,7 @@ def main():
         mgt_mask = input("Enter the subnet mask for the management network: ")
 
     # Create a thread pool
-    max_threads = 4  # Adjust based on your needs
+    max_threads = 10  # Adjust based on your needs
     with ThreadPoolExecutor(max_workers=max_threads) as executor:
         futures = []
         

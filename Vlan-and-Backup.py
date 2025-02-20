@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 from netmiko import ConnectHandler
 from getpass import getpass
 import yaml
@@ -97,6 +98,29 @@ def backup_config_tftp(net_connect, hostname, tftp_server):
     print(output)
     return filename
 
+def configure_device(device_name, device_config, universal_cred, dev_username, dev_secret, tftp_server):
+    """Configure a single device with VLANs and backup"""
+    try:
+        # Connect to the device
+        net_connect = ConnectHandler(**create_device_params(device_config, universal_cred, dev_username, dev_secret))
+        net_connect.enable()
+        print(f"Connected to {device_name} and entered enable mode")
+        
+        # Create VLANs
+        net_connect.config_mode()
+        create_vlans(net_connect, 10, 50, 10)
+        
+        # Wait a moment before backup
+        time.sleep(2)
+        
+        # Backup the configuration
+        backup_config_tftp(net_connect, device_config['hostname'], tftp_server)
+        
+        net_connect.disconnect()
+        
+    except Exception as e:
+        print(f"Failed to configure {device_name}: {str(e)}")
+
 def main():
     with open("config.yaml", "r") as file:
         config = yaml.safe_load(file)
@@ -109,36 +133,30 @@ def main():
     else:
         universal_cred = False
 
-    # Device connection parameters
-    for device_name, device_config in config.items():
-        print(device_name)
-
-        if device_name == "Globals":
-            tftp_server = device_config["tftp_server"]
-            continue
-
-        try:
-            # Connect to the device
-            net_connect = ConnectHandler(**create_device_params(device_config, universal_cred, dev_username, dev_secret))
-            net_connect.enable()
-            print("Entered enable mode")
-            
-            # Create VLANs
-            net_connect.config_mode()
-            print("Entered global configuration mode")
-
-            create_vlans(net_connect, 10, 50, 10)
-            
-            # Backup the configuration using TFTP
-            backup_config_tftp(net_connect, device_config['hostname'], tftp_server)
-            time.sleep(3)
-            
-            # Disconnect
-            net_connect.disconnect()
-            
-        except Exception as e:
-            print(f"Failed to connect to {device_name}.")
-            print(e)
+# Create thread pool
+    max_threads = 10  # Limit concurrent TFTP transfers
+    with ThreadPoolExecutor(max_workers=max_threads) as executor:
+        futures = []
+        
+        for device_name, device_config in config.items():
+            if device_name == "Globals":
+                tftp_server = device_config["tftp_server"]
+                continue
+                
+            future = executor.submit(
+                configure_device,
+                device_name,
+                device_config,
+                universal_cred,
+                dev_username,
+                dev_secret,
+                tftp_server
+            )
+            futures.append(future)
+        
+        # Wait for all configurations to complete
+        for future in futures:
+            future.result()
 
 if __name__ == "__main__":
     main()
