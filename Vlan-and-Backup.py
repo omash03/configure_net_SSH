@@ -51,15 +51,6 @@ def create_device_params(device_config, universal_cred, dev_username, dev_secret
             'secret': get_password("Enter your enable secret: "),
         }
 
-def get_password(prompt="Enter your password: "):
-    while True:
-        password = getpass(prompt)
-        confirm_password = getpass("Confirm your password: ")
-        if password == confirm_password:
-            return password
-        else:
-            print("Passwords do not match. Please try again.")
-
 def create_vlans(net_connect, vlan_start=10, vlan_end=50, step=10):
     """Create VLANs and assign names in steps of 10"""
     print("Creating VLANs...")
@@ -127,19 +118,20 @@ def main():
 
     if input("Will you be using universal credentials?: ") == "yes".lower() or "y".lower():
         universal_cred = True
-        dev_username = input("Enter your username: ")
         dev_secret = get_password("Enter your secret: ")
 
     else:
         universal_cred = False
 
 # Create thread pool
-    max_threads = 10  # Limit concurrent TFTP transfers
+    max_threads = 10  # Set to whatever you can handle
     with ThreadPoolExecutor(max_workers=max_threads) as executor:
         futures = []
         
         for device_name, device_config in config.items():
             if device_name == "Globals":
+                if universal_cred == True:
+                    dev_username = device_config["username"]
                 tftp_server = device_config["tftp_server"]
                 continue
                 
